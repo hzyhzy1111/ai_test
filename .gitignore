@@ -1,0 +1,11 @@
+# 前端
+fd/node_modules/
+fd/dist/
+
+# 后端
+bd/target/
+bd/.idea/
+
+# 系统文件
+*.DS_Store
+Thumbs.db
