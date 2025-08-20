@@ -1,7 +1,17 @@
 // API配置文件
 export const API_CONFIG = {
-  // 基础URL，根据你的后端服务地址修改
-  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000',
+  // 基础URL，指向后端Spring Boot服务
+  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
+  
+  // AI分析相关接口
+  AI: {
+    // 图片上传并分析
+    UPLOAD_AND_ANALYZE: '/api/ai/upload-image',
+    // 默认图片分析
+    ANALYZE_DEFAULT: '/api/ai/analyze',
+    // 健康检查
+    HEALTH: '/api/ai/health'
+  },
   
   // 上传相关接口
   UPLOAD: {

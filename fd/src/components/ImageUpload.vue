@@ -12,7 +12,7 @@
       />
       <div class="upload-content">
         <div class="upload-icon">📷</div>
-        <h2>选择图片进行识别</h2>
+        <h2>选择图片进行AI分析</h2>
         <p>点击选择图片或拖拽图片到此处</p>
         <p class="upload-hint">支持 JPG、PNG、GIF、WebP 格式，最大 5MB</p>
       </div>
@@ -41,7 +41,7 @@
     <div v-if="selectedFiles.length > 0" class="upload-actions">
       <button @click="uploadFiles" :disabled="uploading" class="upload-btn">
         <span v-if="uploading" class="loading-spinner"></span>
-        {{ uploading ? '识别中...' : '开始识别' }}
+        {{ uploading ? 'AI分析中...' : '开始AI分析' }}
       </button>
       <button @click="clearFiles" class="clear-btn">清空选择</button>
     </div>
@@ -56,7 +56,7 @@
 
     <!-- 上传结果 -->
     <div v-if="uploadResults.length > 0" class="upload-results">
-      <h3>识别结果</h3>
+      <h3>AI分析结果</h3>
       <div class="result-list">
         <div
           v-for="(result, index) in uploadResults"
@@ -221,30 +221,31 @@ const uploadFile = async (file: File): Promise<{ success: boolean; message: stri
   try {
     const formData = new FormData()
     formData.append('image', file)
+    formData.append('question', '请详细分析这张图片的内容')
 
-    const response = await fetch(buildApiUrl(API_CONFIG.UPLOAD.SINGLE), {
+    const response = await fetch(buildApiUrl(API_CONFIG.AI.UPLOAD_AND_ANALYZE), {
       method: 'POST',
       body: formData
     })
 
     if (response.ok) {
-      const data = await response.json()
+      const result = await response.text()
       return {
         success: true,
-        message: `图片 ${file.name} 识别成功`
+        message: `图片 ${file.name} 分析结果: ${result}`
       }
     } else {
-      const errorData = await response.json().catch(() => ({}))
+      const errorText = await response.text()
       return {
         success: false,
-        message: `图片 ${file.name} 识别失败: ${errorData.message || response.statusText}`
+        message: `图片 ${file.name} 分析失败: ${errorText || response.statusText}`
       }
     }
   } catch (error) {
-    console.error('识别错误:', error)
+    console.error('分析错误:', error)
     return {
       success: false,
-      message: `图片 ${file.name} 识别失败: 网络错误`
+      message: `图片 ${file.name} 分析失败: 网络错误`
     }
   }
 }
