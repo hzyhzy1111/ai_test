@@ -40,11 +40,9 @@ export const API_CONFIG = {
   // 历史记录相关接口
   HISTORY: {
     // 获取历史记录列表
-    LIST: '/api/history',
-    // 获取单条历史记录详情
-    DETAIL: '/api/history',
+    LIST: '/api/ai/history',
     // 删除历史记录
-    DELETE: '/api/history'
+    DELETE: '/api/ai/history'
   }
 }
 

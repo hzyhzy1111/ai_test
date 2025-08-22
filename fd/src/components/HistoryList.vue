@@ -19,19 +19,20 @@
       <div class="history-items">
         <div
           v-for="(item, index) in historyList"
-          :key="index"
+          :key="item.id"
           class="history-item"
           @click="viewDetail(item)"
         >
           <div class="item-image">
-            <img :src="item.imageUrl" :alt="item.filename" />
+            <img :src="item.imagePath" :alt="'图片' + item.id" />
           </div>
           <div class="item-info">
-            <h4>{{ item.filename }}</h4>
-            <p class="item-time">{{ formatTime(item.createTime) }}</p>
-            <p class="item-status" :class="item.status">
-              {{ getStatusText(item.status) }}
+            <h4>图片识别记录 #{{ item.id }}</h4>
+            <p class="item-time">{{ formatTime(item.createdAt) }}</p>
+            <p class="item-status success">
+              {{ getStatusText() }}
             </p>
+            <p class="item-result">{{ item.resultText.substring(0, 50) }}{{ item.resultText.length > 50 ? '...' : '' }}</p>
           </div>
           <div class="item-actions">
             <button @click.stop="deleteHistory(item.id)" class="delete-btn">删除</button>
@@ -44,15 +45,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { buildApiUrl } from '../config/api'
+import { buildApiUrl, API_CONFIG } from '../config/api'
 
 interface HistoryItem {
-  id: string
-  filename: string
-  imageUrl: string
-  createTime: string
-  status: 'success' | 'failed' | 'processing'
-  result?: string
+  id: number
+  imagePath: string
+  resultText: string
+  createdAt: string
 }
 
 const historyList = ref<HistoryItem[]>([])
@@ -62,16 +61,20 @@ const loading = ref(false)
 const fetchHistory = async () => {
   loading.value = true
   try {
-    const response = await fetch(buildApiUrl('/api/history'), {
+    const response = await fetch(buildApiUrl(API_CONFIG.HISTORY.LIST), {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${getUserToken()}`
+        'Content-Type': 'application/json'
       }
     })
 
     if (response.ok) {
-      const data = await response.json()
-      historyList.value = data.data || []
+      const result = await response.json()
+      if (result.success) {
+        historyList.value = result.data || []
+      } else {
+        console.error('获取历史记录失败:', result.message)
+      }
     } else {
       console.error('获取历史记录失败')
     }
@@ -88,20 +91,25 @@ const refreshHistory = () => {
 }
 
 // 删除历史记录
-const deleteHistory = async (id: string) => {
+const deleteHistory = async (id: number) => {
   if (!confirm('确定要删除这条记录吗？')) return
 
   try {
-    const response = await fetch(buildApiUrl(`/api/history/${id}`), {
+    const response = await fetch(buildApiUrl(`${API_CONFIG.HISTORY.DELETE}/${id}`), {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bearer ${getUserToken()}`
+        'Content-Type': 'application/json'
       }
     })
 
     if (response.ok) {
-      // 从列表中移除
-      historyList.value = historyList.value.filter(item => item.id !== id)
+      const result = await response.json()
+      if (result.success) {
+        // 从列表中移除
+        historyList.value = historyList.value.filter(item => item.id !== id)
+      } else {
+        alert('删除失败: ' + result.message)
+      }
     } else {
       alert('删除失败')
     }
@@ -113,8 +121,8 @@ const deleteHistory = async (id: string) => {
 
 // 查看详情
 const viewDetail = (item: HistoryItem) => {
-  // 这里可以打开详情弹窗或跳转到详情页面
-  console.log('查看详情:', item)
+  // 显示图片和识别结果
+  alert(`图片识别结果:\n\n${item.resultText}`)
 }
 
 // 格式化时间
@@ -136,22 +144,12 @@ const formatTime = (timeStr: string): string => {
 }
 
 // 获取状态文本
-const getStatusText = (status: string): string => {
-  const statusMap = {
-    success: '识别成功',
-    failed: '识别失败',
-    processing: '识别中'
-  }
-  return statusMap[status as keyof typeof statusMap] || status
+const getStatusText = (): string => {
+  return '识别成功'
 }
 
-// 获取用户token
+// 获取用户token - 暂时不需要
 const getUserToken = (): string => {
-  const userInfo = localStorage.getItem('userInfo')
-  if (userInfo) {
-    const parsed = JSON.parse(userInfo)
-    return parsed.token || ''
-  }
   return ''
 }
 
@@ -309,6 +307,18 @@ onMounted(() => {
 
 .item-status.processing {
   color: #ffc107;
+}
+
+.item-result {
+  margin: 5px 0 0 0;
+  font-size: 0.7rem;
+  color: #666;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .item-actions {
