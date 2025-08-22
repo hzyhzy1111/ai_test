@@ -3,6 +3,7 @@ package com.example.demo2.controller;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 import com.example.demo2.service.AiService;
 import com.example.demo2.service.ImageRecordService;
 import com.example.demo2.entity.ImageRecord;
@@ -11,6 +12,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/ai")
@@ -69,10 +71,76 @@ public class AiController {
         }
     }
     
+    @PostMapping("/stream-analyze")
+    public ResponseBodyEmitter streamAnalyzeImage(@RequestParam("image") MultipartFile imageFile, 
+                                                 @RequestParam(value = "question", defaultValue = "请分析这张图片") String question) {
+        // 设置超时时间为5分钟
+        ResponseBodyEmitter emitter = new ResponseBodyEmitter(300000L);
+        
+        // 用于存储完整的AI分析结果
+        final String[] aiResult = new String[1];
+        
+        try {
+            // 将图片转换为Base64格式
+            byte[] imageBytes = imageFile.getBytes();
+            String base64Image = "data:" + imageFile.getContentType() + ";base64," + 
+                               Base64.getEncoder().encodeToString(imageBytes);
+            
+            // 启动流式分析，使用回调函数接收AI分析结果
+            aiService.analyzeImageStream(base64Image, question, emitter, (result) -> {
+                aiResult[0] = result;
+            });
+            
+            // 异步保存历史记录
+            emitter.onCompletion(() -> {
+                try {
+                    String imageIdentifier = "图片_" + System.currentTimeMillis() + ".jpg";
+                    // 使用实际的AI分析结果，如果没有则使用默认文本
+                    String resultToSave = aiResult[0] != null ? aiResult[0] : "流式分析结果";
+                    imageRecordService.saveImageRecord(imageIdentifier, resultToSave);
+                } catch (Exception e) {
+                    System.err.println("保存历史记录失败: " + e.getMessage());
+                }
+            });
+            
+            // 添加超时处理
+            emitter.onTimeout(() -> {
+                try {
+                    emitter.send("data: {\"type\":\"error\",\"message\":\"请求超时，请重试\"}\n\n");
+                    emitter.complete();
+                } catch (IOException e) {
+                    emitter.completeWithError(e);
+                }
+            });
+            
+            // 添加错误处理
+            emitter.onError((ex) -> {
+                try {
+                    emitter.send("data: {\"type\":\"error\",\"message\":\"处理过程中发生错误: " + ex.getMessage().replace("\"", "\\\"") + "\"}\n\n");
+                    emitter.complete();
+                } catch (IOException e) {
+                    // 忽略错误
+                }
+            });
+            
+        } catch (IOException e) {
+            try {
+                emitter.send("data: {\"type\":\"error\",\"message\":\"图片处理失败: " + e.getMessage().replace("\"", "\\\"") + "\"}\n\n");
+                emitter.complete();
+            } catch (IOException ex) {
+                emitter.completeWithError(ex);
+            }
+        }
+        
+        return emitter;
+    }
+    
     @GetMapping("/health")
     public String health() {
         return "AI服务运行正常";
     }
+    
+
     
     /**
      * 测试数据库连接

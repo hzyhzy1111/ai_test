@@ -37,14 +37,40 @@
       </div>
     </div>
 
+    <!-- 文本输入区域 -->
+    <div v-if="selectedFiles.length > 0" class="question-input-section">
+      <h3>请输入您的问题</h3>
+      <div class="question-input-container">
+        <textarea
+          v-model="userQuestion"
+          placeholder="请输入您想询问的问题，例如：这张图片里有什么？请详细描述图片内容。"
+          class="question-textarea"
+          rows="3"
+        ></textarea>
+        <div class="question-hint">
+          <p>💡 提示：您可以询问图片内容、物体识别、场景描述等问题</p>
+        </div>
+      </div>
+    </div>
+
     <!-- 上传按钮 -->
     <div v-if="selectedFiles.length > 0" class="upload-actions">
-      <button @click="uploadFiles" :disabled="uploading" class="upload-btn">
-        <span v-if="uploading" class="loading-spinner"></span>
-        {{ uploading ? 'AI分析中...' : '开始AI分析' }}
-      </button>
-      <button @click="clearFiles" class="clear-btn">清空选择</button>
+      <div class="upload-options">
+        <label class="stream-toggle">
+          <input type="checkbox" v-model="useStreamMode" />
+          <span>流式输出</span>
+        </label>
+      </div>
+      <div class="upload-buttons">
+        <button @click="uploadFiles" :disabled="uploading || !userQuestion.trim()" class="upload-btn">
+          <span v-if="uploading" class="loading-spinner"></span>
+          {{ uploading ? 'AI分析中...' : '开始AI分析' }}
+        </button>
+        <button @click="clearFiles" class="clear-btn">清空选择</button>
+      </div>
     </div>
+    
+
 
     <!-- 上传进度 -->
     <div v-if="uploading" class="upload-progress">
@@ -52,6 +78,9 @@
         <div class="progress-fill" :style="{ width: uploadProgress + '%' }"></div>
       </div>
       <span class="progress-text">{{ uploadProgress }}%</span>
+      <div v-if="useStreamMode && streamMessage" class="stream-message">
+        {{ streamMessage }}
+      </div>
     </div>
 
     <!-- 上传结果 -->
@@ -62,9 +91,17 @@
           v-for="(result, index) in uploadResults"
           :key="index"
           class="result-item"
-          :class="{ success: result.success, error: !result.success }"
+          :class="{ 
+            success: result.success, 
+            error: !result.success,
+            isStreaming: result.isStreaming 
+          }"
         >
-          <span class="result-icon">{{ result.success ? '✅' : '❌' }}</span>
+          <span class="result-icon">
+            <span v-if="result.isStreaming">⏳</span>
+            <span v-else-if="result.success">✅</span>
+            <span v-else>❌</span>
+          </span>
           <span class="result-text">{{ result.message }}</span>
         </div>
       </div>
@@ -87,6 +124,7 @@ interface UploadResult {
   success: boolean
   message: string
   fileName?: string
+  isStreaming?: boolean
 }
 
 const fileInput = ref<HTMLInputElement>()
@@ -94,6 +132,9 @@ const selectedFiles = ref<FileItem[]>([])
 const uploading = ref(false)
 const uploadProgress = ref(0)
 const uploadResults = ref<UploadResult[]>([])
+const useStreamMode = ref(false)
+const streamMessage = ref('')
+const userQuestion = ref('请分析这张图片')
 
 // 触发文件选择
 const triggerFileInput = () => {
@@ -160,6 +201,7 @@ const removeFile = (index: number) => {
 const clearFiles = () => {
   selectedFiles.value = []
   uploadResults.value = []
+  userQuestion.value = '请分析这张图片'
 }
 
 // 格式化文件大小
@@ -178,29 +220,34 @@ const uploadFiles = async () => {
   uploading.value = true
   uploadProgress.value = 0
   uploadResults.value = []
+  streamMessage.value = ''
 
   try {
     for (let i = 0; i < selectedFiles.value.length; i++) {
       const fileItem = selectedFiles.value[i]
       
-      // 模拟上传进度
-      const progressInterval = setInterval(() => {
-        if (uploadProgress.value < 90) {
-          uploadProgress.value += 10
-        }
-      }, 100)
+      if (useStreamMode.value) {
+        // 使用流式输出
+        await uploadFileStream(fileItem.file)
+      } else {
+        // 使用传统同步方式
+        const progressInterval = setInterval(() => {
+          if (uploadProgress.value < 90) {
+            uploadProgress.value += 10
+          }
+        }, 100)
 
-      // 调用后端接口
-      const result = await uploadFile(fileItem.file)
-      
-      clearInterval(progressInterval)
-      uploadProgress.value = 100
+        const result = await uploadFile(fileItem.file)
+        
+        clearInterval(progressInterval)
+        uploadProgress.value = 100
 
-      uploadResults.value.push({
-        success: result.success,
-        message: result.message,
-        fileName: fileItem.name
-      })
+        uploadResults.value.push({
+          success: result.success,
+          message: result.message,
+          fileName: fileItem.name
+        })
+      }
 
       // 等待一下再上传下一个文件
       await new Promise(resolve => setTimeout(resolve, 500))
@@ -213,7 +260,98 @@ const uploadFiles = async () => {
   } finally {
     uploading.value = false
     uploadProgress.value = 0
+    streamMessage.value = ''
   }
+}
+
+
+
+// 流式上传单个文件到后端
+const uploadFileStream = async (file: File): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData()
+    formData.append('image', file)
+    formData.append('question', userQuestion.value.trim() || '请分析这张图片')
+
+    const response = fetch(buildApiUrl('/api/ai/stream-analyze'), {
+      method: 'POST',
+      body: formData
+    })
+
+    response.then(res => {
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`)
+      }
+
+      const reader = res.body?.getReader()
+      const decoder = new TextDecoder()
+
+      if (!reader) {
+        throw new Error('无法读取响应流')
+      }
+
+      const readStream = () => {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            resolve()
+            return
+          }
+
+          const chunk = decoder.decode(value)
+          const lines = chunk.split('\n')
+
+          lines.forEach(line => {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+                
+                if (data.type === 'progress') {
+                  uploadProgress.value = data.progress
+                  streamMessage.value = data.message
+                } else if (data.type === 'stream') {
+                  // 处理流式内容
+                  if (!uploadResults.value.length || uploadResults.value[uploadResults.value.length - 1].fileName !== file.name) {
+                    // 创建新的结果项
+                    uploadResults.value.push({
+                      success: true,
+                      message: data.content,
+                      fileName: file.name,
+                      isStreaming: true
+                    })
+                  } else {
+                    // 追加到现有结果
+                    const currentResult = uploadResults.value[uploadResults.value.length - 1]
+                    currentResult.message += data.content
+                  }
+                } else if (data.type === 'result') {
+                  uploadProgress.value = 100
+                  streamMessage.value = data.message
+                  // 更新最终结果
+                  const currentResult = uploadResults.value.find(r => r.fileName === file.name)
+                  if (currentResult) {
+                    currentResult.message = data.result
+                    currentResult.isStreaming = false
+                  }
+                } else if (data.type === 'error') {
+                  uploadResults.value.push({
+                    success: false,
+                    message: `图片 ${file.name} 分析失败: ${data.message}`,
+                    fileName: file.name
+                  })
+                }
+              } catch (e) {
+                console.error('解析流数据失败:', e)
+              }
+            }
+          })
+
+          readStream()
+        }).catch(reject)
+      }
+
+      readStream()
+    }).catch(reject)
+  })
 }
 
 // 上传单个文件到后端
@@ -221,7 +359,7 @@ const uploadFile = async (file: File): Promise<{ success: boolean; message: stri
   try {
     const formData = new FormData()
     formData.append('image', file)
-    formData.append('question', '请详细分析这张图片的内容')
+    formData.append('question', userQuestion.value.trim() || '请分析这张图片')
 
     const response = await fetch(buildApiUrl(API_CONFIG.AI.UPLOAD_AND_ANALYZE), {
       method: 'POST',
@@ -390,12 +528,91 @@ const uploadFile = async (file: File): Promise<{ success: boolean; message: stri
   transform: scale(1.1);
 }
 
+.question-input-section {
+  margin: 20px 0;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  border: 1px solid #e9ecef;
+}
+
+.question-input-section h3 {
+  margin: 0 0 15px 0;
+  color: #495057;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.question-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.question-textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color 0.3s ease;
+}
+
+.question-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.question-hint {
+  font-size: 0.85rem;
+  color: #6c757d;
+  line-height: 1.4;
+}
+
+.question-hint p {
+  margin: 0;
+}
+
 .upload-actions {
   display: flex;
+  flex-direction: column;
   gap: 15px;
   margin-bottom: 25px;
-  justify-content: center;
+  align-items: center;
 }
+
+.upload-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stream-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #666;
+  user-select: none;
+}
+
+.stream-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #667eea;
+}
+
+.upload-buttons {
+  display: flex;
+  gap: 15px;
+}
+
+
 
 .upload-btn, .clear-btn {
   padding: 12px 30px;
@@ -484,6 +701,14 @@ const uploadFile = async (file: File): Promise<{ success: boolean; message: stri
   min-width: 40px;
 }
 
+.stream-message {
+  font-size: 0.9rem;
+  color: #667eea;
+  margin-top: 8px;
+  text-align: center;
+  font-weight: 500;
+}
+
 .upload-results {
   margin-top: 25px;
   background: #f8f9fa;
@@ -521,6 +746,38 @@ const uploadFile = async (file: File): Promise<{ success: boolean; message: stri
 
 .result-item.error {
   color: #dc3545;
+}
+
+.result-item.isStreaming {
+  position: relative;
+}
+
+.result-item.isStreaming::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  background: #667eea;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: translateY(-50%) scale(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
 }
 
 .result-icon {

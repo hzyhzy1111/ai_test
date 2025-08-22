@@ -42,7 +42,7 @@ public class ImageRecordService {
      * 获取所有历史记录
      */
     public List<ImageRecord> getAllRecords() {
-        String sql = "SELECT * FROM image_records ORDER BY created_at DESC";
+        String sql = "SELECT * FROM image_records ORDER BY created_at ASC";
         return jdbcTemplate.query(sql, rowMapper);
     }
     

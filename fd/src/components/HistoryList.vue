@@ -27,7 +27,7 @@
             <img :src="item.imagePath" :alt="'图片' + item.id" />
           </div>
           <div class="item-info">
-            <h4>图片识别记录 #{{ item.id }}</h4>
+            <h4>图片识别记录 #{{ index + 1 }}</h4>
             <p class="item-time">{{ formatTime(item.createdAt) }}</p>
             <p class="item-status success">
               {{ getStatusText() }}
@@ -105,8 +105,8 @@ const deleteHistory = async (id: number) => {
     if (response.ok) {
       const result = await response.json()
       if (result.success) {
-        // 从列表中移除
-        historyList.value = historyList.value.filter(item => item.id !== id)
+        // 重新获取所有历史记录，确保编号重新排序
+        await fetchHistory()
       } else {
         alert('删除失败: ' + result.message)
       }
